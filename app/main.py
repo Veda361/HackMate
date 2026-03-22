@@ -12,10 +12,7 @@ app = FastAPI(title="HackMate API 🚀")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://effortless-sorbet-0b9617.netlify.app"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
