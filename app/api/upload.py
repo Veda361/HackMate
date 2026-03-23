@@ -21,7 +21,7 @@ def get_db():
 
 
 @router.post("/avatar")
-def upload_avatar(
+async def upload_avatar(
     file: UploadFile = File(...),
     authorization: str = Header(...),
     db: Session = Depends(get_db)
