@@ -120,7 +120,6 @@ def update_skills(
 
 # 🔥 MATCHING ENGINE
 
-
 @router.get("/match")
 def get_matches(
     authorization: str = Header(...),
@@ -135,29 +134,28 @@ def get_matches(
         current_user = db.query(User).filter(User.firebase_uid == uid).first()
 
         if not current_user:
-            return {"error": "User not found"}
+            return []
 
-        users = db.query(User).all()
+        users = db.query(User).filter(
+            User.firebase_uid != uid,   # ✅ exclude self
+            User.skills != None,        # ✅ must have skills
+            User.skills != ""           # ✅ not empty
+        ).all()
 
         results = []
 
         for u in users:
-            if u.firebase_uid != uid:  # ✅ REMOVE skills restriction
+            score = calculate_match(current_user.skills or "", u.skills)
 
-                score = calculate_match(
-                    current_user.skills or "",
-                    u.skills or ""
-                )
-
-                results.append({
-                    "uid": u.firebase_uid,   # ✅ IMPORTANT FIX
-                    "email": u.email,
-                    "username": u.username,
-                    "skills": u.skills or "",
-                    "score": score
-                })
+            results.append({
+                "uid": u.firebase_uid,   # ✅ IMPORTANT
+                "email": u.email,
+                "username": u.username,
+                "skills": u.skills,
+                "score": score
+            })
 
         return sorted(results, key=lambda x: x["score"], reverse=True)
 
     except Exception as e:
-        return {"error": str(e)}
+        return []
