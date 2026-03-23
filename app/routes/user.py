@@ -119,6 +119,8 @@ def update_skills(
         return {"error": str(e)}
 
 # 🔥 MATCHING ENGINE
+
+
 @router.get("/match")
 def get_matches(
     authorization: str = Header(...),
@@ -140,13 +142,18 @@ def get_matches(
         results = []
 
         for u in users:
-            if u.firebase_uid != uid and u.skills:
-                score = calculate_match(current_user.skills or "", u.skills)
+            if u.firebase_uid != uid:  # ✅ REMOVE skills restriction
+
+                score = calculate_match(
+                    current_user.skills or "",
+                    u.skills or ""
+                )
 
                 results.append({
+                    "uid": u.firebase_uid,   # ✅ IMPORTANT FIX
                     "email": u.email,
                     "username": u.username,
-                    "skills": u.skills,
+                    "skills": u.skills or "",
                     "score": score
                 })
 
