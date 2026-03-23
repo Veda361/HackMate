@@ -3,7 +3,7 @@ from datetime import datetime
 from app.db.base import Base
 
 class Message(Base):
-    __tablename__ = "messages"
+    __tablename__ = "hackMate_messages"
 
     id = Column(Integer, primary_key=True)
     sender_uid = Column(String, index=True)
