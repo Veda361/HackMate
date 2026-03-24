@@ -8,7 +8,7 @@ from app.services.match_engine import calculate_match
 router = APIRouter()
 
 
-# ✅ DB Dependency (with proper close)
+# ✅ DB Dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -17,7 +17,7 @@ def get_db():
         db.close()
 
 
-# 🔥 CREATE PROFILE (with username)
+# 🔥 CREATE PROFILE
 @router.post("/profile")
 def create_profile(
     authorization: str = Header(...),
@@ -28,9 +28,12 @@ def create_profile(
         token = authorization.split(" ")[1]
         decoded = verify_token(token)
 
-        uid = decoded["uid"]
-        email = decoded["email"]
+        uid = decoded.get("uid")
+        email = decoded.get("email")
         username = data.get("username", "")
+
+        if not uid:
+            return {"error": "Invalid token"}
 
         user = db.query(User).filter(User.firebase_uid == uid).first()
 
@@ -50,10 +53,11 @@ def create_profile(
         }
 
     except Exception as e:
+        print("❌ PROFILE ERROR:", e)
         return {"error": str(e)}
 
 
-# 🔥 GET CURRENT USER (IMPORTANT for Dashboard)
+# 🔥 GET CURRENT USER
 @router.get("/me")
 def get_me(
     authorization: str = Header(...),
@@ -63,7 +67,7 @@ def get_me(
         token = authorization.split(" ")[1]
         decoded = verify_token(token)
 
-        uid = decoded["uid"]
+        uid = decoded.get("uid")
 
         user = db.query(User).filter(User.firebase_uid == uid).first()
 
@@ -73,14 +77,15 @@ def get_me(
         return {
             "email": user.email,
             "username": user.username,
-            "skills": user.skills
+            "skills": user.skills or ""
         }
 
     except Exception as e:
+        print("❌ GET ME ERROR:", e)
         return {"error": str(e)}
 
 
-# 🔥 UPDATE SKILLS (FIXED: JSON body instead of query param)
+# 🔥 UPDATE SKILLS
 @router.post("/update-skills")
 def update_skills(
     data: dict = Body(...),
@@ -88,19 +93,14 @@ def update_skills(
     db: Session = Depends(get_db)
 ):
     try:
-        print("📩 Request received")
-
         if not authorization:
             return {"error": "Missing Authorization"}
 
         token = authorization.split(" ")[1]
-
         decoded = verify_token(token)
 
-        uid = decoded["uid"]
-        skills = data.get("skills")
-
-        print("🧠 Skills:", skills)
+        uid = decoded.get("uid")
+        skills = data.get("skills", "")
 
         user = db.query(User).filter(User.firebase_uid == uid).first()
 
@@ -110,18 +110,19 @@ def update_skills(
         user.skills = skills
         db.commit()
 
-        print("✅ Skills updated")
-
-        return {"msg": "Skills updated", "skills": skills}
+        return {
+            "msg": "Skills updated",
+            "skills": skills
+        }
 
     except Exception as e:
-        print("❌ ERROR:", e)
+        print("❌ UPDATE SKILLS ERROR:", e)
         return {"error": str(e)}
 
-# 🔥 MATCHING ENGINE
 
-@router.get("/match")
-def get_matches(
+# 🔥 SUGGESTION ENGINE (Tinder-style swipe users)
+@router.get("/suggestions")
+def get_suggestions(
     authorization: str = Header(...),
     db: Session = Depends(get_db)
 ):
@@ -129,33 +130,40 @@ def get_matches(
         token = authorization.split(" ")[1]
         decoded = verify_token(token)
 
-        uid = decoded["uid"]
+        uid = decoded.get("uid")
 
         current_user = db.query(User).filter(User.firebase_uid == uid).first()
 
         if not current_user:
             return []
 
+        if not current_user.skills:
+            return []
+
         users = db.query(User).filter(
-            User.firebase_uid != uid,   # ✅ exclude self
-            User.skills != None,        # ✅ must have skills
-            User.skills != ""           # ✅ not empty
+            User.firebase_uid != uid,
+            User.skills != None,
+            User.skills != ""
         ).all()
 
         results = []
 
         for u in users:
-            score = calculate_match(current_user.skills or "", u.skills)
+            score = calculate_match(current_user.skills, u.skills)
 
             results.append({
-                "uid": u.firebase_uid,   # ✅ IMPORTANT
+                "uid": u.firebase_uid,
                 "email": u.email,
                 "username": u.username,
                 "skills": u.skills,
                 "score": score
             })
 
-        return sorted(results, key=lambda x: x["score"], reverse=True)
+        # 🔥 sort highest match first
+        results.sort(key=lambda x: x["score"], reverse=True)
+
+        return results
 
     except Exception as e:
+        print("❌ SUGGESTION ERROR:", e)
         return []

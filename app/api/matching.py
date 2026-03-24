@@ -49,4 +49,5 @@ def get_my_matches(
         return results
 
     except Exception as e:
-        return {"error": str(e)}
+        print("❌ MATCH ERROR:", e)
+        return []
