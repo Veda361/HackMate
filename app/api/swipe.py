@@ -5,13 +5,15 @@ from app.models.swipe import Swipe
 from app.models.match import Match
 from app.core.firebase import verify_token
 
-# 🔥 IMPORT YOUR WS MANAGER
-from app.api.chat import manager  
+# ✅ SAFE IMPORT (NO CRASH)
+try:
+    from app.api.chat import manager
+except:
+    manager = None
 
 router = APIRouter()
 
 
-# ✅ DB Dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -27,7 +29,6 @@ async def swipe_user(
     db: Session = Depends(get_db),
 ):
     try:
-        # 🔐 Verify user
         token = authorization.split(" ")[1]
         decoded = verify_token(token)
 
@@ -35,65 +36,62 @@ async def swipe_user(
         swiped_uid = data.get("swiped_uid")
         liked = data.get("liked")
 
-        # ❌ Prevent self swipe
         if swiper_uid == swiped_uid:
             return {"error": "Cannot swipe yourself"}
 
-        # 🔥 CHECK IF SWIPE ALREADY EXISTS
-        existing_swipe = db.query(Swipe).filter(
+        # 🔥 UPSERT SWIPE
+        existing = db.query(Swipe).filter(
             Swipe.swiper_uid == swiper_uid,
             Swipe.swiped_uid == swiped_uid
         ).first()
 
-        if existing_swipe:
-            existing_swipe.liked = liked
+        if existing:
+            existing.liked = liked
         else:
-            swipe = Swipe(
+            db.add(Swipe(
                 swiper_uid=swiper_uid,
                 swiped_uid=swiped_uid,
                 liked=liked
-            )
-            db.add(swipe)
+            ))
 
         db.commit()
 
         # 🔥 CHECK MUTUAL LIKE
         if liked:
-            reverse_swipe = db.query(Swipe).filter(
+            reverse = db.query(Swipe).filter(
                 Swipe.swiper_uid == swiped_uid,
                 Swipe.swiped_uid == swiper_uid,
                 Swipe.liked == True
             ).first()
 
-            if reverse_swipe:
-                # ✅ CHECK IF MATCH ALREADY EXISTS
-                already_match = db.query(Match).filter(
+            if reverse:
+                already = db.query(Match).filter(
                     ((Match.user1_uid == swiper_uid) & (Match.user2_uid == swiped_uid)) |
                     ((Match.user1_uid == swiped_uid) & (Match.user2_uid == swiper_uid))
                 ).first()
 
-                if not already_match:
-                    match = Match(
+                if not already:
+                    db.add(Match(
                         user1_uid=swiper_uid,
                         user2_uid=swiped_uid
-                    )
-                    db.add(match)
+                    ))
                     db.commit()
 
-                    # 🔥 REAL-TIME MATCH EVENT
-                    try:
-                        await manager.send_personal_message({
-                            "type": "match",
-                            "user": swiped_uid
-                        }, swiper_uid)
+                    # 🔥 REAL-TIME MATCH (SAFE)
+                    if manager:
+                        try:
+                            await manager.send_personal_message({
+                                "type": "match",
+                                "user": swiped_uid
+                            }, swiper_uid)
 
-                        await manager.send_personal_message({
-                            "type": "match",
-                            "user": swiper_uid
-                        }, swiped_uid)
+                            await manager.send_personal_message({
+                                "type": "match",
+                                "user": swiper_uid
+                            }, swiped_uid)
 
-                    except Exception as ws_error:
-                        print("⚠️ WS SEND ERROR:", ws_error)
+                        except Exception as e:
+                            print("⚠️ WS ERROR:", e)
 
                 return {"msg": "It's a MATCH 🎉"}
 
