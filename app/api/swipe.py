@@ -29,6 +29,8 @@ async def swipe_user(
     db: Session = Depends(get_db),
 ):
     try:
+        print("🔥 SWIPE API CALLED")
+
         token = authorization.split(" ")[1]
         decoded = verify_token(token)
 
@@ -36,25 +38,33 @@ async def swipe_user(
         swiped_uid = data.get("swiped_uid")
         liked = data.get("liked")
 
+        print("Swiper:", swiper_uid)
+        print("Swiped:", swiped_uid)
+        print("Liked:", liked)
+
         if swiper_uid == swiped_uid:
             return {"error": "Cannot swipe yourself"}
 
-        # 🔥 UPSERT SWIPE
+        # 🔥 CHECK EXISTING SWIPE
         existing = db.query(Swipe).filter(
             Swipe.swiper_uid == swiper_uid,
             Swipe.swiped_uid == swiped_uid
         ).first()
 
         if existing:
-            existing.liked = liked
-        else:
-            db.add(Swipe(
-                swiper_uid=swiper_uid,
-                swiped_uid=swiped_uid,
-                liked=liked
-            ))
+            print("⚠️ Already swiped")
+            return {"msg": "Already swiped"}
 
+        # 🔥 CREATE SWIPE
+        new_swipe = Swipe(
+            swiper_uid=swiper_uid,
+            swiped_uid=swiped_uid,
+            liked=liked
+        )
+        db.add(new_swipe)
         db.commit()
+
+        print("✅ Swipe saved")
 
         # 🔥 CHECK MUTUAL LIKE
         if liked:
@@ -65,19 +75,24 @@ async def swipe_user(
             ).first()
 
             if reverse:
+                print("🔥 MATCH FOUND")
+
                 already = db.query(Match).filter(
                     ((Match.user1_uid == swiper_uid) & (Match.user2_uid == swiped_uid)) |
                     ((Match.user1_uid == swiped_uid) & (Match.user2_uid == swiper_uid))
                 ).first()
 
                 if not already:
-                    db.add(Match(
+                    match = Match(
                         user1_uid=swiper_uid,
                         user2_uid=swiped_uid
-                    ))
+                    )
+                    db.add(match)
                     db.commit()
 
-                    # 🔥 REAL-TIME MATCH (SAFE)
+                    print("✅ Match created")
+
+                    # 🔥 REAL-TIME
                     if manager:
                         try:
                             await manager.send_personal_message({
