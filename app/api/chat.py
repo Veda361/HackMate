@@ -6,10 +6,9 @@ from app.models.message import Message
 router = APIRouter()
 
 
-# 🔥 CONNECTION MANAGER (NEW)
 class ConnectionManager:
     def __init__(self):
-        self.active_connections = {}  # uid -> websocket
+        self.active_connections = {}
         self.online_users = set()
 
     async def connect(self, uid: str, websocket: WebSocket):
@@ -18,9 +17,7 @@ class ConnectionManager:
         self.online_users.add(uid)
 
         print(f"🔌 Connected: {uid}")
-
-        # 🔥 broadcast online users
-        await self.broadcast({"online": list(self.online_users)})
+        await self.broadcast({"type": "online", "users": list(self.online_users)})
 
     def disconnect(self, uid: str):
         self.active_connections.pop(uid, None)
@@ -28,7 +25,7 @@ class ConnectionManager:
 
         print(f"❌ Disconnected: {uid}")
 
-    async def send_personal_message(self, message: dict, uid: str):
+    async def send(self, uid: str, message: dict):
         ws = self.active_connections.get(uid)
         if ws:
             await ws.send_json(message)
@@ -38,11 +35,9 @@ class ConnectionManager:
             await ws.send_json(message)
 
 
-# 🔥 GLOBAL INSTANCE (IMPORTANT)
 manager = ConnectionManager()
 
 
-# 🔥 WEBSOCKET ROUTE
 @router.websocket("/ws/{uid}")
 async def websocket_endpoint(websocket: WebSocket, uid: str):
     await manager.connect(uid, websocket)
@@ -51,9 +46,12 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
         while True:
             data = await websocket.receive_json()
             receiver = data.get("to")
+            msg_type = data.get("type")
 
+            # =====================
             # 💬 MESSAGE
-            if "message" in data:
+            # =====================
+            if msg_type == "message":
                 db: Session = SessionLocal()
 
                 db.add(Message(
@@ -64,46 +62,43 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                 db.commit()
                 db.close()
 
-                await manager.send_personal_message({
+                await manager.send(receiver, {
+                    "type": "message",
                     "from": uid,
                     "message": data["message"]
-                }, receiver)
+                })
 
+            # =====================
             # ✍️ TYPING
-            elif "typing" in data:
-                await manager.send_personal_message({
-                    "typing": True,
+            # =====================
+            elif msg_type == "typing":
+                await manager.send(receiver, {
+                    "type": "typing",
                     "from": uid
-                }, receiver)
+                })
 
-            # 📞 CALL
-            elif "call" in data:
-                await manager.send_personal_message({
-                    "call": True,
+            # =====================
+            # 📞 CALL EVENTS
+            # =====================
+            elif msg_type in ["call", "call_accept", "call_reject", "call_end"]:
+                await manager.send(receiver, {
+                    "type": msg_type,
                     "from": uid
-                }, receiver)
+                })
 
-            elif "call_accept" in data:
-                await manager.send_personal_message({
-                    "call_accept": True,
-                    "from": uid
-                }, receiver)
-
-            elif "call_reject" in data:
-                await manager.send_personal_message({
-                    "call_reject": True,
-                    "from": uid
-                }, receiver)
-
+            # =====================
             # 🎥 WEBRTC SIGNALING
-            elif any(k in data for k in ["offer", "answer", "candidate"]):
-                await manager.send_personal_message({
-                    **data,
-                    "from": uid
-                }, receiver)
+            # =====================
+            elif msg_type in ["offer", "answer", "candidate"]:
+                await manager.send(receiver, {
+                    "type": msg_type,
+                    "from": uid,
+                    **data
+                })
 
     except WebSocketDisconnect:
         manager.disconnect(uid)
-
-        # 🔥 broadcast updated online users
-        await manager.broadcast({"online": list(manager.online_users)})
+        await manager.broadcast({
+            "type": "online",
+            "users": list(manager.online_users)
+        })
