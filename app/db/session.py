@@ -13,7 +13,8 @@ if not DATABASE_URL:
 # 🔥 FIX Railway postgres issue
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    print("🔥 ACTIVE DB URL:", DATABASE_URL)
+
+print("🔥 ACTIVE DB URL:", DATABASE_URL)
 
 engine = create_engine(
     DATABASE_URL,
