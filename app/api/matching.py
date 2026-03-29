@@ -17,20 +17,15 @@ def get_db():
         db.close()
 
 
-# 🔥 GET MATCHES + REQUESTS
+# 🔥 GET MATCHES + REQUESTS + SENT
 @router.get("/")
 def get_my_matches(
     authorization: str = Header(...),
     db: Session = Depends(get_db)
 ):
     try:
-        print("🔥 MATCH API CALLED")
-
         token = authorization.split(" ")[1]
-        decoded = verify_token(token)
-        uid = decoded["uid"]
-
-        print("User UID:", uid)
+        uid = verify_token(token)["uid"]
 
         results = []
 
@@ -40,8 +35,6 @@ def get_my_matches(
         matches = db.query(Match).filter(
             (Match.user1_uid == uid) | (Match.user2_uid == uid)
         ).all()
-
-        print("Matches found:", len(matches))
 
         for m in matches:
             other_uid = m.user2_uid if m.user1_uid == uid else m.user1_uid
@@ -68,11 +61,7 @@ def get_my_matches(
             Swipe.liked == True
         ).all()
 
-        print("Incoming swipes:", len(incoming_swipes))
-
         for s in incoming_swipes:
-
-            # ❌ Skip if already matched
             already = db.query(Match).filter(
                 ((Match.user1_uid == s.swiper_uid) & (Match.user2_uid == uid)) |
                 ((Match.user1_uid == uid) & (Match.user2_uid == s.swiper_uid))
@@ -95,7 +84,36 @@ def get_my_matches(
                     "chat_enabled": False
                 })
 
-        print("✅ Final results:", len(results))
+        # =========================
+        # 🔥 3. SENT REQUESTS (FIX)
+        # =========================
+        sent_swipes = db.query(Swipe).filter(
+            Swipe.swiper_uid == uid,
+            Swipe.liked == True
+        ).all()
+
+        for s in sent_swipes:
+            already = db.query(Match).filter(
+                ((Match.user1_uid == uid) & (Match.user2_uid == s.swiped_uid)) |
+                ((Match.user1_uid == s.swiped_uid) & (Match.user2_uid == uid))
+            ).first()
+
+            if already:
+                continue
+
+            user = db.query(User).filter(
+                User.firebase_uid == s.swiped_uid
+            ).first()
+
+            if user:
+                results.append({
+                    "uid": user.firebase_uid,
+                    "username": user.username,
+                    "email": user.email,
+                    "skills": user.skills,
+                    "type": "sent",
+                    "chat_enabled": False
+                })
 
         return results
 
@@ -104,9 +122,7 @@ def get_my_matches(
         return []
 
 
-# =========================
-# ❤️ ACCEPT REQUEST
-# =========================
+# ❤️ ACCEPT
 @router.post("/accept")
 def accept_request(
     data: dict = Body(...),
@@ -114,14 +130,9 @@ def accept_request(
     db: Session = Depends(get_db)
 ):
     try:
-        token = authorization.split(" ")[1]
-        uid = verify_token(token)["uid"]
-
+        uid = verify_token(authorization.split(" ")[1])["uid"]
         other_uid = data.get("uid")
 
-        print("✅ ACCEPT:", uid, "<->", other_uid)
-
-        # 🔥 prevent duplicate match
         existing = db.query(Match).filter(
             ((Match.user1_uid == uid) & (Match.user2_uid == other_uid)) |
             ((Match.user1_uid == other_uid) & (Match.user2_uid == uid))
@@ -130,14 +141,9 @@ def accept_request(
         if existing:
             return {"msg": "Already matched"}
 
-        # 🔥 create match
-        match = Match(
-            user1_uid=uid,
-            user2_uid=other_uid
-        )
+        match = Match(user1_uid=uid, user2_uid=other_uid)
         db.add(match)
 
-        # 🔥 remove request swipe
         db.query(Swipe).filter(
             Swipe.swiper_uid == other_uid,
             Swipe.swiped_uid == uid
@@ -148,13 +154,10 @@ def accept_request(
         return {"msg": "Accepted ✅"}
 
     except Exception as e:
-        print("❌ ACCEPT ERROR:", e)
         return {"error": str(e)}
 
 
-# =========================
-# ❌ REJECT REQUEST
-# =========================
+# ❌ REJECT
 @router.post("/reject")
 def reject_request(
     data: dict = Body(...),
@@ -162,12 +165,8 @@ def reject_request(
     db: Session = Depends(get_db)
 ):
     try:
-        token = authorization.split(" ")[1]
-        uid = verify_token(token)["uid"]
-
+        uid = verify_token(authorization.split(" ")[1])["uid"]
         other_uid = data.get("uid")
-
-        print("❌ REJECT:", uid, "<->", other_uid)
 
         db.query(Swipe).filter(
             Swipe.swiper_uid == other_uid,
@@ -179,5 +178,4 @@ def reject_request(
         return {"msg": "Rejected ❌"}
 
     except Exception as e:
-        print("❌ REJECT ERROR:", e)
         return {"error": str(e)}
