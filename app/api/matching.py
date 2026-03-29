@@ -6,6 +6,12 @@ from app.models.user import User
 from app.models.swipe import Swipe
 from app.core.firebase import verify_token
 
+# 🔥 SAFE IMPORT
+try:
+    from app.api.chat import manager
+except:
+    manager = None
+
 router = APIRouter()
 
 
@@ -17,21 +23,18 @@ def get_db():
         db.close()
 
 
-# 🔥 GET MATCHES + REQUESTS + SENT
+# 🔥 GET MATCHES
 @router.get("/")
 def get_my_matches(
     authorization: str = Header(...),
     db: Session = Depends(get_db)
 ):
     try:
-        token = authorization.split(" ")[1]
-        uid = verify_token(token)["uid"]
+        uid = verify_token(authorization.split(" ")[1])["uid"]
 
         results = []
 
-        # =========================
-        # 🔥 1. MUTUAL MATCHES
-        # =========================
+        # 🔥 MATCHES
         matches = db.query(Match).filter(
             (Match.user1_uid == uid) | (Match.user2_uid == uid)
         ).all()
@@ -53,15 +56,13 @@ def get_my_matches(
                     "chat_enabled": True
                 })
 
-        # =========================
-        # 🔥 2. INCOMING REQUESTS
-        # =========================
-        incoming_swipes = db.query(Swipe).filter(
+        # 🔥 INCOMING
+        incoming = db.query(Swipe).filter(
             Swipe.swiped_uid == uid,
             Swipe.liked == True
         ).all()
 
-        for s in incoming_swipes:
+        for s in incoming:
             already = db.query(Match).filter(
                 ((Match.user1_uid == s.swiper_uid) & (Match.user2_uid == uid)) |
                 ((Match.user1_uid == uid) & (Match.user2_uid == s.swiper_uid))
@@ -84,15 +85,13 @@ def get_my_matches(
                     "chat_enabled": False
                 })
 
-        # =========================
-        # 🔥 3. SENT REQUESTS (FIX)
-        # =========================
-        sent_swipes = db.query(Swipe).filter(
+        # 🔥 SENT
+        sent = db.query(Swipe).filter(
             Swipe.swiper_uid == uid,
             Swipe.liked == True
         ).all()
 
-        for s in sent_swipes:
+        for s in sent:
             already = db.query(Match).filter(
                 ((Match.user1_uid == uid) & (Match.user2_uid == s.swiped_uid)) |
                 ((Match.user1_uid == s.swiped_uid) & (Match.user2_uid == uid))
@@ -122,9 +121,9 @@ def get_my_matches(
         return []
 
 
-# ❤️ ACCEPT
+# ❤️ ACCEPT (🔥 FIXED)
 @router.post("/accept")
-def accept_request(
+async def accept_request(
     data: dict = Body(...),
     authorization: str = Header(...),
     db: Session = Depends(get_db)
@@ -151,9 +150,21 @@ def accept_request(
 
         db.commit()
 
+        # 🔥 REAL-TIME FIX
+        if manager:
+            await manager.send_personal_message(
+                {"type": "invite_accepted", "user": other_uid},
+                uid
+            )
+            await manager.send_personal_message(
+                {"type": "invite_accepted", "user": uid},
+                other_uid
+            )
+
         return {"msg": "Accepted ✅"}
 
     except Exception as e:
+        print("❌ ACCEPT ERROR:", e)
         return {"error": str(e)}
 
 
