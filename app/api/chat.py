@@ -67,39 +67,61 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
             receiver = data.get("to")
             msg_type = data.get("type")
 
+            # =====================
             # 💬 MESSAGE
+            # =====================
             if msg_type == "message":
                 db: Session = SessionLocal()
 
                 db.add(Message(
                     sender_uid=uid,
                     receiver_uid=receiver,
-                    content=data["message"]  # ✅ FIXED
+                    content=data["message"]
                 ))
                 db.commit()
                 db.close()
 
+                # 🔥 SEND TO RECEIVER
                 await manager.send(receiver, {
                     "type": "message",
                     "from": uid,
                     "message": data["message"]
                 })
 
+                # 🔥 SEND BACK TO SENDER (FIX)
+                await manager.send(uid, {
+                    "type": "message",
+                    "from": uid,
+                    "message": data["message"]
+                })
+
+            # =====================
             # ✍️ TYPING
+            # =====================
             elif msg_type == "typing":
                 await manager.send(receiver, {
                     "type": "typing",
                     "from": uid
                 })
 
-            # 📞 CALL
+            # =====================
+            # 🟢 ONLINE PING (FIX)
+            # =====================
+            elif msg_type == "online_ping":
+                await manager.broadcast_online()
+
+            # =====================
+            # 📞 CALL EVENTS
+            # =====================
             elif msg_type in ["call", "call_accept", "call_reject", "call_end"]:
                 await manager.send(receiver, {
                     "type": msg_type,
                     "from": uid
                 })
 
-            # 🎥 WEBRTC
+            # =====================
+            # 🎥 WEBRTC SIGNALING
+            # =====================
             elif msg_type in ["offer", "answer", "candidate"]:
                 await manager.send(receiver, {
                     "type": msg_type,
@@ -112,7 +134,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
         await manager.broadcast_online()
 
 
-# 🔥 CHAT HISTORY (FIXED)
+# 🔥 CHAT HISTORY
 @router.get("/history/{other_uid}")
 def get_chat_history(
     other_uid: str,
@@ -130,7 +152,7 @@ def get_chat_history(
         return [
             {
                 "from": m.sender_uid,
-                "message": m.content,  # ✅ FIXED
+                "message": m.content,
                 "time": m.timestamp
             }
             for m in messages
