@@ -81,15 +81,8 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                 db.commit()
                 db.close()
 
-                # 🔥 SEND TO RECEIVER
+                # 🔥 SEND ONLY TO RECEIVER (FIXED)
                 await manager.send(receiver, {
-                    "type": "message",
-                    "from": uid,
-                    "message": data["message"]
-                })
-
-                # 🔥 SEND BACK TO SENDER (FIX)
-                await manager.send(uid, {
                     "type": "message",
                     "from": uid,
                     "message": data["message"]
@@ -105,7 +98,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                 })
 
             # =====================
-            # 🟢 ONLINE PING (FIX)
+            # 🟢 ONLINE PING
             # =====================
             elif msg_type == "online_ping":
                 await manager.broadcast_online()
