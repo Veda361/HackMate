@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Header, Body
 from sqlalchemy.orm import Session
+
 from app.db.session import SessionLocal
 from app.models.swipe import Swipe
 from app.models.match import Match
 from app.core.firebase import verify_token
 
-# ✅ SAFE IMPORT (NO CRASH)
 try:
     from app.api.chat import manager
 except:
@@ -29,51 +29,56 @@ async def swipe_user(
     db: Session = Depends(get_db),
 ):
     try:
-        print("🔥 SWIPE API CALLED")
-
         token = authorization.split(" ")[1]
         decoded = verify_token(token)
 
         swiper_uid = decoded["uid"]
+
         swiped_uid = data.get("swiped_uid")
         liked = data.get("liked")
 
-        print("Swiper:", swiper_uid)
-        print("Swiped:", swiped_uid)
-        print("Liked:", liked)
+        print("🔥 SWIPE")
+        print(swiper_uid, "->", swiped_uid)
 
-        # ❌ safety
         if not swiped_uid:
             return {"error": "Missing swiped_uid"}
 
         if swiper_uid == swiped_uid:
             return {"error": "Cannot swipe yourself"}
 
-        # 🔥 CHECK EXISTING SWIPE
+        # =========================
+        # ALREADY SWIPED
+        # =========================
         existing = db.query(Swipe).filter(
             Swipe.swiper_uid == swiper_uid,
             Swipe.swiped_uid == swiped_uid
         ).first()
 
         if existing:
-            print("⚠️ Already swiped")
-            return {"msg": "Already swiped", "match": False}
+            return {
+                "msg": "Already swiped",
+                "match": False
+            }
 
-        # 🔥 CREATE SWIPE
-        new_swipe = Swipe(
+        # =========================
+        # SAVE SWIPE
+        # =========================
+        swipe = Swipe(
             swiper_uid=swiper_uid,
             swiped_uid=swiped_uid,
             liked=liked
         )
-        db.add(new_swipe)
+
+        db.add(swipe)
         db.commit()
 
-        print("✅ Swipe saved")
+        print("✅ Swipe stored")
 
         # =========================
-        # 🔥 CHECK MUTUAL LIKE
+        # CHECK MUTUAL MATCH
         # =========================
         if liked:
+
             reverse = db.query(Swipe).filter(
                 Swipe.swiper_uid == swiped_uid,
                 Swipe.swiped_uid == swiper_uid,
@@ -81,24 +86,33 @@ async def swipe_user(
             ).first()
 
             if reverse:
+
                 print("🔥 MATCH FOUND")
 
                 already = db.query(Match).filter(
-                    ((Match.user1_uid == swiper_uid) & (Match.user2_uid == swiped_uid)) |
-                    ((Match.user1_uid == swiped_uid) & (Match.user2_uid == swiper_uid))
+                    (
+                        (Match.user1_uid == swiper_uid) &
+                        (Match.user2_uid == swiped_uid)
+                    ) |
+                    (
+                        (Match.user1_uid == swiped_uid) &
+                        (Match.user2_uid == swiper_uid)
+                    )
                 ).first()
 
                 if not already:
+
                     match = Match(
                         user1_uid=swiper_uid,
-                        user2_uid=swiped_uid
+                        user2_uid=swiped_uid,
+                        chat_enabled=True
                     )
+
                     db.add(match)
                     db.commit()
 
-                    print("✅ Match created")
+                    print("✅ MATCH CREATED")
 
-                    # 🔥 REAL-TIME (SAFE)
                     if manager:
                         try:
                             await manager.send_personal_message({
@@ -112,16 +126,13 @@ async def swipe_user(
                             }, swiped_uid)
 
                         except Exception as e:
-                            print("⚠️ WS ERROR:", e)
+                            print("❌ WS ERROR:", e)
 
-                # ✅ IMPORTANT RESPONSE (FIXED)
                 return {
-                    "msg": "match",
-                    "match": True,
-                    "user": swiped_uid
+                    "msg": "MATCH CREATED",
+                    "match": True
                 }
 
-        # ✅ NORMAL SWIPE RESPONSE
         return {
             "msg": "Swipe stored",
             "match": False
